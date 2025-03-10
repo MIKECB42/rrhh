@@ -1,0 +1,62 @@
+.
+├── .DS_Store
+├── hr-app
+│   ├── .DS_Store
+│   ├── README.md
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── public
+│   │   ├── favicon.ico
+│   │   ├── index.html
+│   │   ├── logo192.png
+│   │   ├── logo512.png
+│   │   ├── manifest.json
+│   │   └── robots.txt
+│   └── src
+│       ├── .DS_Store
+│       ├── App.css
+│       ├── App.js
+│       ├── App.js.save
+│       ├── App.test.js
+│       ├── api
+│       │   └── client.js
+│       ├── components
+│       │   ├── Dashboard.js
+│       │   ├── DepartmentTable.js
+│       │   ├── EmployeeProfile.js
+│       │   ├── EmployeeTable.js
+│       │   ├── HistoryModal.js
+│       │   ├── HistorySection.js
+│       │   ├── Login.js
+│       │   ├── ProfileSection.js
+│       │   ├── RecognitionPanel.js
+│       │   ├── Reports.js
+│       │   ├── RoleTable.js
+│       │   ├── Sidebar.js
+│       │   └── VacationSection.js
+│       ├── hooks
+│       │   ├── useDashboard.js
+│       │   ├── useDepartments.js
+│       │   ├── useEmployeeProfile.js
+│       │   ├── useEmployees.js
+│       │   ├── useRecognitions.js
+│       │   ├── useReports.js
+│       │   └── useRoles.js
+│       ├── index.css
+│       ├── index.js
+│       ├── logo.svg
+│       ├── reportWebVitals.js
+│       ├── setupTests.js
+│       └── utils
+│           └── utils.js
+├── hr-backend
+│   ├── .DS_Store
+│   ├── hash.js
+│   ├── index.js
+│   ├── logfile
+│   ├── package-lock.json
+│   └── package.json
+├── hr_db_structure.sql
+└── structure.txt
+
+9 directories, 51 files
