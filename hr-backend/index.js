@@ -45,17 +45,26 @@ const authenticateToken = (req, res, next) => {
 // Endpoint de login
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
-  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-  if (rows.length > 0) {
-    const match = await bcrypt.compare(password, rows[0].password);
-    if (match) {
-      req.session.user = { email: rows[0].email, role: rows[0].role }; // Usa sesiones o JWT
-      res.json({ success: true, role: rows[0].role });
+  try {
+    const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    if (rows.length > 0) {
+      const match = await bcrypt.compare(password, rows[0].password);
+      if (match) {
+        const token = jwt.sign(
+          { id: rows[0].id, email: rows[0].email, role: rows[0].role },
+          JWT_SECRET,
+          { expiresIn: '1h' }
+        );
+        res.json({ success: true, token });
+      } else {
+        res.status(401).json({ success: false, message: 'Credenciales no válidas' });
+      }
     } else {
       res.status(401).json({ success: false, message: 'Credenciales no válidas' });
     }
-  } else {
-    res.status(401).json({ success: false, message: 'Credenciales no válidas' });
+  } catch (error) {
+    console.error('Error en login:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter, useNavigate } from 'react-router-dom';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import Sidebar from './components/Sidebar';
 import EmployeeTable from './components/EmployeeTable';
@@ -10,7 +11,7 @@ import RecognitionPanel from './components/RecognitionPanel';
 import HistoryModal from './components/HistoryModal';
 import EmployeeProfile from './components/EmployeeProfile';
 import Login from './components/Login';
-import fetchWithToken from './api/client'; // Nueva importación
+import fetchWithToken from './api/client';
 import { useEmployees } from './hooks/useEmployees';
 import { useDepartments } from './hooks/useDepartments';
 import { useRoles } from './hooks/useRoles';
@@ -21,12 +22,60 @@ import './App.css';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
+// Componente ErrorBoundary
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('Error caught by ErrorBoundary:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <h1>Algo salió mal. Por favor, recarga la página.</h1>;
+    }
+    return this.props.children;
+  }
+}
+
+// Componente para el header con rol y cerrar sesión
+const Header = ({ userRole, onLogout }) => {
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    localStorage.removeItem('token'); // Limpia el token
+    localStorage.removeItem('userRole'); // Limpia el rol
+    localStorage.removeItem('employeeId'); // Limpia el ID del empleado
+    onLogout();
+    navigate('/');
+  };
+
+  return (
+    <div className="header">
+      {userRole === 'admin' && <span className="role-icon">👑 Admin</span>}
+      {userRole === 'empleado' && <span className="role-icon">👤 Empleado</span>}
+      <button onClick={handleLogout} className="logout-button">Cerrar Sesión</button>
+    </div>
+  );
+};
+
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userRole, setUserRole] = useState(null);
-  const [employeeId, setEmployeeId] = useState(null); // ID del empleado logueado
-  // eslint-disable-next-line no-unused-vars
-  const [email, setEmail] = useState(''); // Para recordar el email (ignorado por ahora)
+  const navigate = useNavigate();
+  // Restaurar estado desde localStorage al montar
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    const token = localStorage.getItem('token');
+    return !!token; // Si hay token, considera que está autenticado
+  });
+  const [userRole, setUserRole] = useState(() => localStorage.getItem('userRole') || null);
+  const [employeeId, setEmployeeId] = useState(() => localStorage.getItem('employeeId') || null);
+  const [email, setEmail] = useState(''); // Mantengo email por compatibilidad con Login
   const [employeeForm, setEmployeeForm] = useState({ first_name: '', last_name: '', email: '', hire_date: '', department_id: '', role_id: '' });
   const [departmentForm, setDepartmentForm] = useState({ name: '' });
   const [roleForm, setRoleForm] = useState({ title: '', salary: '' });
@@ -242,7 +291,7 @@ function App() {
 
   useEffect(() => {
     const rememberedEmail = localStorage.getItem('rememberedEmail');
-    if (rememberedEmail) setEmail(rememberedEmail); // Prellenar email si se recuerda
+    if (rememberedEmail) setEmail(rememberedEmail);
   }, []);
 
   useEffect(() => {
@@ -275,20 +324,36 @@ function App() {
     };
   }, [showHistoryModal]);
 
-  // Renderizado condicional según autenticación
+  // Redirección al perfil si es empleado
+  useEffect(() => {
+    if (isAuthenticated && userRole === 'empleado') {
+      navigate('/profile');
+    }
+  }, [isAuthenticated, userRole, navigate]);
+
+  // Guardar estado en localStorage cuando cambie
+  useEffect(() => {
+    if (isAuthenticated) {
+      localStorage.setItem('token', 'dummy-token'); // Reemplaza con el token real del backend
+      localStorage.setItem('userRole', userRole);
+      localStorage.setItem('employeeId', employeeId);
+    }
+  }, [isAuthenticated, userRole, employeeId]);
+
   if (!isAuthenticated) {
     return (
       <Login
         setIsAuthenticated={setIsAuthenticated}
         setUserRole={setUserRole}
         setEmployeeId={setEmployeeId}
-        setEmail={setEmail} // Para recordar el email
+        setEmail={setEmail}
       />
     );
   }
 
   return (
     <div className="App">
+      <Header userRole={userRole} onLogout={() => setIsAuthenticated(false)} />
       <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
       <div className="content">
         {activeTab === 'employees' && (
@@ -320,7 +385,7 @@ function App() {
             handleRestore={handleRestore}
             resetFilters={resetFilters}
             fetchEmployeeProfile={fetchEmployeeProfile}
-            userRole={userRole} // Pasar el rol para restricciones
+            userRole={userRole}
           />
         )}
         {activeTab === 'departments' && (
@@ -380,7 +445,7 @@ function App() {
             departments={departments}
             roles={roles}
             setSelectedEmployeeId={setSelectedEmployeeId}
-            userRole={userRole} // Pasar el rol al perfil
+            userRole={userRole}
           />
         )}
         <HistoryModal
@@ -399,4 +464,13 @@ function App() {
   );
 }
 
-export default App;
+// Envolver App con BrowserRouter y ErrorBoundary
+const AppWrapper = () => (
+  <BrowserRouter>
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  </BrowserRouter>
+);
+
+export default AppWrapper;

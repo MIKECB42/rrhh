@@ -1,32 +1,63 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom'; // Importa useNavigate
 
 const Login = ({ setIsAuthenticated, setUserRole, setEmployeeId, setEmail }) => {
   const [email, setLocalEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const navigate = useNavigate(); // Inicializa el hook useNavigate
+
+  // Restaurar email si el usuario eligió recordarlo
+  useEffect(() => {
+    const rememberedEmail = localStorage.getItem('rememberedEmail');
+    const rememberEmail = localStorage.getItem('rememberEmail') === 'true';
+    if (rememberEmail && rememberedEmail) {
+      setLocalEmail(rememberedEmail);
+    }
+  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
       const response = await fetch('http://localhost:3001/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ email, password }),
       });
       const data = await response.json();
       if (response.ok) {
+        // Guardar token y datos del usuario en localStorage
+        localStorage.setItem('token', data.token); // Guarda el token
+        localStorage.setItem('userRole', data.role || ''); // Guarda el rol
+        localStorage.setItem('employeeId', data.employeeId || ''); // Guarda el ID del empleado (ajusta según la respuesta del backend)
+        localStorage.setItem('rememberedEmail', email); // Guarda el email si el checkbox está marcado
+
+        // Actualizar estados en App.js
         setIsAuthenticated(true);
-        setUserRole(data.role);
-        setEmployeeId(data.employee_id);
-        setEmail(email); // Usar el email del estado local
-        localStorage.setItem('rememberedEmail', email); // Recordar email
-        localStorage.setItem('token', data.token); // Guardar el token
+        setUserRole(data.role || '');
+        setEmployeeId(data.employeeId || null);
+        setEmail(email);
+
+        // Redirigir al dashboard
+        navigate('/dashboard');
       } else {
-        setError(data.error || 'Error al iniciar sesión');
+        setError(data.message || 'Credenciales inválidas');
       }
     } catch (err) {
+      console.error('Error de red:', err);
       setError('Error de red');
-      console.error('Error de red:', err); // Depuración
+    }
+  };
+
+  const handleRememberEmailChange = (e) => {
+    const checked = e.target.checked;
+    localStorage.setItem('rememberEmail', checked);
+    if (checked) {
+      localStorage.setItem('rememberedEmail', email);
+    } else {
+      localStorage.removeItem('rememberedEmail');
     }
   };
 
@@ -52,9 +83,20 @@ const Login = ({ setIsAuthenticated, setUserRole, setEmployeeId, setEmail }) => 
       </form>
       {error && <p className="error">{error}</p>}
       <label>
-        <input type="checkbox" onChange={(e) => localStorage.setItem('rememberEmail', e.target.checked)} /> Recordar Email
+        <input
+          type="checkbox"
+          onChange={handleRememberEmailChange}
+          defaultChecked={localStorage.getItem('rememberEmail') === 'true'}
+        /> Recordar Email
       </label>
-      <a href="#">¿Olvidaste tu contraseña?</a>
+      {/* Reemplazar <a href="#"> por <button> con estilos de enlace */}
+      <button
+        type="button"
+        className="forgot-password-link"
+        onClick={() => alert('Funcionalidad no implementada aún')}
+      >
+        ¿Olvidaste tu contraseña?
+      </button>
     </div>
   );
 };
