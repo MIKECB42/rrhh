@@ -1,0 +1,862 @@
+--
+-- PostgreSQL database dump
+--
+
+-- Dumped from database version 14.17 (Homebrew)
+-- Dumped by pg_dump version 14.17 (Homebrew)
+
+-- Started on 2025-03-13 19:28:31 CET
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- TOC entry 2 (class 3079 OID 16573)
+-- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
+
+
+--
+-- TOC entry 3790 (class 0 OID 0)
+-- Dependencies: 2
+-- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: 
+--
+
+COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
+
+
+--
+-- TOC entry 272 (class 1255 OID 16571)
+-- Name: create_or_update_user_for_employee(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.create_or_update_user_for_employee() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  temp_password VARCHAR := 'TempPass' || FLOOR(RANDOM() * 1000000)::TEXT; -- Contraseña temporal única
+  hashed_password VARCHAR;
+BEGIN
+  -- Generar hash de la contraseña temporal
+  SELECT crypt(temp_password, gen_salt('bf')) INTO hashed_password;
+
+  IF TG_OP = 'INSERT' AND NEW.is_active = TRUE THEN
+    -- Insertar nuevo usuario si no existe
+    INSERT INTO public.users (employee_id, email, password, role, is_active, created_at, force_password_change)
+    VALUES (NEW.id, NEW.email, hashed_password, 'employee', TRUE, NOW(), TRUE)
+    ON CONFLICT (employee_id) DO UPDATE
+    SET is_active = TRUE, email = NEW.email, force_password_change = TRUE, created_at = NOW();
+    -- Obtener el ID del usuario recién creado o existente
+    WITH updated_user AS (
+      INSERT INTO public.users (employee_id, email, password, role, is_active, created_at, force_password_change)
+      VALUES (NEW.id, NEW.email, hashed_password, 'employee', TRUE, NOW(), TRUE)
+      ON CONFLICT (employee_id) DO UPDATE
+      SET is_active = TRUE, email = NEW.email, force_password_change = TRUE
+      RETURNING id
+    )
+    INSERT INTO user_roles (user_id, role)
+    SELECT id, 'employee' FROM updated_user
+    ON CONFLICT DO NOTHING;
+    -- Simulación de envío de email (en producción usar Nodemailer)
+    RAISE NOTICE 'Contraseña temporal para %: %', NEW.email, temp_password;
+  ELSIF TG_OP = 'UPDATE' AND NEW.is_active != OLD.is_active THEN
+    -- Actualizar is_active en users si cambia en employees
+    UPDATE public.users
+    SET is_active = NEW.is_active
+    WHERE employee_id = NEW.id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION public.create_or_update_user_for_employee() OWNER TO postgres;
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- TOC entry 210 (class 1259 OID 16468)
+-- Name: departments; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.departments (
+    id integer NOT NULL,
+    name character varying(100) NOT NULL
+);
+
+
+ALTER TABLE public.departments OWNER TO postgres;
+
+--
+-- TOC entry 211 (class 1259 OID 16471)
+-- Name: departments_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.departments_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.departments_id_seq OWNER TO postgres;
+
+--
+-- TOC entry 3791 (class 0 OID 0)
+-- Dependencies: 211
+-- Name: departments_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.departments_id_seq OWNED BY public.departments.id;
+
+
+--
+-- TOC entry 212 (class 1259 OID 16472)
+-- Name: employee_history; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.employee_history (
+    id integer NOT NULL,
+    employee_id integer NOT NULL,
+    field_changed character varying(50) NOT NULL,
+    old_value character varying(100),
+    new_value character varying(100),
+    change_date timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+ALTER TABLE public.employee_history OWNER TO postgres;
+
+--
+-- TOC entry 213 (class 1259 OID 16476)
+-- Name: employee_history_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.employee_history_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.employee_history_id_seq OWNER TO postgres;
+
+--
+-- TOC entry 3792 (class 0 OID 0)
+-- Dependencies: 213
+-- Name: employee_history_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.employee_history_id_seq OWNED BY public.employee_history.id;
+
+
+--
+-- TOC entry 214 (class 1259 OID 16477)
+-- Name: employees; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.employees (
+    id integer NOT NULL,
+    first_name character varying(50) NOT NULL,
+    last_name character varying(50) NOT NULL,
+    email character varying(100) NOT NULL,
+    hire_date date NOT NULL,
+    department_id integer,
+    role_id integer,
+    is_active boolean DEFAULT true
+);
+
+
+ALTER TABLE public.employees OWNER TO postgres;
+
+--
+-- TOC entry 215 (class 1259 OID 16481)
+-- Name: employees_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.employees_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.employees_id_seq OWNER TO postgres;
+
+--
+-- TOC entry 3793 (class 0 OID 0)
+-- Dependencies: 215
+-- Name: employees_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.employees_id_seq OWNED BY public.employees.id;
+
+
+--
+-- TOC entry 216 (class 1259 OID 16482)
+-- Name: recognitions; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.recognitions (
+    id integer NOT NULL,
+    employee_id integer NOT NULL,
+    message text NOT NULL,
+    badge character varying(50) NOT NULL,
+    date date NOT NULL
+);
+
+
+ALTER TABLE public.recognitions OWNER TO postgres;
+
+--
+-- TOC entry 217 (class 1259 OID 16487)
+-- Name: recognitions_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.recognitions_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.recognitions_id_seq OWNER TO postgres;
+
+--
+-- TOC entry 3794 (class 0 OID 0)
+-- Dependencies: 217
+-- Name: recognitions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.recognitions_id_seq OWNED BY public.recognitions.id;
+
+
+--
+-- TOC entry 218 (class 1259 OID 16488)
+-- Name: roles; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.roles (
+    id integer NOT NULL,
+    title character varying(100) NOT NULL,
+    salary numeric(10,2) NOT NULL
+);
+
+
+ALTER TABLE public.roles OWNER TO postgres;
+
+--
+-- TOC entry 219 (class 1259 OID 16491)
+-- Name: roles_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.roles_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.roles_id_seq OWNER TO postgres;
+
+--
+-- TOC entry 3795 (class 0 OID 0)
+-- Dependencies: 219
+-- Name: roles_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.roles_id_seq OWNED BY public.roles.id;
+
+
+--
+-- TOC entry 223 (class 1259 OID 16549)
+-- Name: time_entries; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.time_entries (
+    id integer NOT NULL,
+    employee_id integer NOT NULL,
+    clock_in timestamp without time zone NOT NULL,
+    clock_out timestamp without time zone
+);
+
+
+ALTER TABLE public.time_entries OWNER TO postgres;
+
+--
+-- TOC entry 222 (class 1259 OID 16548)
+-- Name: time_entries_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.time_entries_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.time_entries_id_seq OWNER TO postgres;
+
+--
+-- TOC entry 3796 (class 0 OID 0)
+-- Dependencies: 222
+-- Name: time_entries_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.time_entries_id_seq OWNED BY public.time_entries.id;
+
+
+--
+-- TOC entry 224 (class 1259 OID 16561)
+-- Name: user_roles; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.user_roles (
+    user_id integer NOT NULL,
+    role character varying(50) NOT NULL
+);
+
+
+ALTER TABLE public.user_roles OWNER TO postgres;
+
+--
+-- TOC entry 220 (class 1259 OID 16492)
+-- Name: users; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.users (
+    id integer NOT NULL,
+    employee_id integer,
+    email character varying(255) NOT NULL,
+    password character varying(255) NOT NULL,
+    role character varying(50) DEFAULT 'employee'::character varying NOT NULL,
+    is_active boolean DEFAULT true,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    force_password_change boolean DEFAULT true
+);
+
+
+ALTER TABLE public.users OWNER TO postgres;
+
+--
+-- TOC entry 221 (class 1259 OID 16500)
+-- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.users_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER TABLE public.users_id_seq OWNER TO postgres;
+
+--
+-- TOC entry 3797 (class 0 OID 0)
+-- Dependencies: 221
+-- Name: users_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.users_id_seq OWNED BY public.users.id;
+
+
+--
+-- TOC entry 3588 (class 2604 OID 16501)
+-- Name: departments id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.departments ALTER COLUMN id SET DEFAULT nextval('public.departments_id_seq'::regclass);
+
+
+--
+-- TOC entry 3590 (class 2604 OID 16502)
+-- Name: employee_history id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.employee_history ALTER COLUMN id SET DEFAULT nextval('public.employee_history_id_seq'::regclass);
+
+
+--
+-- TOC entry 3592 (class 2604 OID 16503)
+-- Name: employees id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.employees ALTER COLUMN id SET DEFAULT nextval('public.employees_id_seq'::regclass);
+
+
+--
+-- TOC entry 3593 (class 2604 OID 16504)
+-- Name: recognitions id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.recognitions ALTER COLUMN id SET DEFAULT nextval('public.recognitions_id_seq'::regclass);
+
+
+--
+-- TOC entry 3594 (class 2604 OID 16505)
+-- Name: roles id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.roles ALTER COLUMN id SET DEFAULT nextval('public.roles_id_seq'::regclass);
+
+
+--
+-- TOC entry 3600 (class 2604 OID 16552)
+-- Name: time_entries id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.time_entries ALTER COLUMN id SET DEFAULT nextval('public.time_entries_id_seq'::regclass);
+
+
+--
+-- TOC entry 3598 (class 2604 OID 16506)
+-- Name: users id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_id_seq'::regclass);
+
+
+--
+-- TOC entry 3770 (class 0 OID 16468)
+-- Dependencies: 210
+-- Data for Name: departments; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.departments (id, name) FROM stdin;
+2	IT
+1	Ventas
+3	RRHH
+9	Secretaria
+\.
+
+
+--
+-- TOC entry 3772 (class 0 OID 16472)
+-- Dependencies: 212
+-- Data for Name: employee_history; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.employee_history (id, employee_id, field_changed, old_value, new_value, change_date) FROM stdin;
+1	54	hire_date	Thu Feb 20 2020 00:00:00 GMT+0100 (hora estándar de Europa central)	2020-02-20	2025-03-07 14:47:56.30039
+2	54	department_id	1	1	2025-03-07 14:47:56.303779
+3	54	role_id	5	5	2025-03-07 14:47:56.304163
+4	54	hire_date	Thu Feb 20 2020 00:00:00 GMT+0100 (hora estándar de Europa central)	2020-02-20	2025-03-07 14:50:30.369605
+5	54	department_id	1	1	2025-03-07 14:50:30.370456
+6	54	role_id	5	8	2025-03-07 14:50:30.370867
+7	54	hire_date	Thu Feb 20 2020 00:00:00 GMT+0100 (hora estándar de Europa central)	2020-02-20	2025-03-07 19:35:47.518555
+8	54	department_id	1	1	2025-03-07 19:35:47.522158
+9	54	role_id	8	9	2025-03-07 19:35:47.52262
+10	54	hire_date	Thu Feb 20 2020 00:00:00 GMT+0100 (hora estándar de Europa central)	2020-02-20	2025-03-07 20:06:42.904863
+11	54	department_id	1	2	2025-03-07 20:06:42.906774
+12	54	role_id	9	9	2025-03-07 20:06:42.907415
+13	55	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2010-10-09	2025-03-07 20:30:12.000207
+14	55	department_id	3	3	2025-03-07 20:30:12.002451
+15	55	role_id	8	9	2025-03-07 20:30:12.002756
+16	54	hire_date	Thu Feb 20 2020 00:00:00 GMT+0100 (hora estándar de Europa central)	2020-02-19	2025-03-07 21:04:06.510231
+17	54	department_id	2	2	2025-03-07 21:04:06.513209
+18	54	role_id	9	9	2025-03-07 21:04:06.513724
+19	54	hire_date	Wed Feb 19 2020 00:00:00 GMT+0100 (hora estándar de Europa central)	2020-02-18	2025-03-07 21:04:19.099738
+20	54	department_id	2	2	2025-03-07 21:04:19.100487
+21	54	role_id	9	9	2025-03-07 21:04:19.101032
+22	56	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2010-10-10	2025-03-07 21:25:24.106991
+23	56	department_id	1	1	2025-03-07 21:25:24.108932
+24	56	role_id	5	8	2025-03-07 21:25:24.109206
+25	57	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2010-10-10	2025-03-07 21:56:36.567658
+26	57	department_id	2	2	2025-03-07 21:56:36.569842
+27	57	role_id	5	8	2025-03-07 21:56:36.570731
+28	54	hire_date	Tue Feb 18 2020 00:00:00 GMT+0100 (hora estándar de Europa central)	2020-02-17	2025-03-07 22:37:09.915857
+29	54	department_id	2	2	2025-03-07 22:37:09.918343
+30	54	role_id	9	9	2025-03-07 22:37:09.918664
+31	58	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2010-10-10	2025-03-08 00:46:36.452237
+32	58	department_id	1	2	2025-03-08 00:46:36.453379
+33	58	role_id	5	5	2025-03-08 00:46:36.454636
+34	61	hire_date	Fri Jan 01 2010 00:00:00 GMT+0100 (hora estándar de Europa central)	2010-01-01	2025-03-08 18:51:19.859293
+35	61	department_id	3	3	2025-03-08 18:51:19.862447
+36	61	role_id	5	5	2025-03-08 18:51:19.863101
+37	63	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2010-10-10	2025-03-11 23:25:07.674847
+38	63	department_id	2	3	2025-03-11 23:25:07.679274
+39	63	role_id	9	9	2025-03-11 23:25:07.680083
+40	63	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2010-10-10	2025-03-11 23:25:32.926498
+41	63	department_id	3	1	2025-03-11 23:25:32.927403
+42	63	role_id	9	9	2025-03-11 23:25:32.92786
+43	64	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2010-10-10	2025-03-11 23:56:59.007626
+44	64	department_id	2	2	2025-03-11 23:56:59.009937
+45	64	role_id	8	8	2025-03-11 23:56:59.010367
+46	63	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2010-10-10	2025-03-11 23:57:13.294726
+47	63	department_id	1	1	2025-03-11 23:57:13.296294
+48	63	role_id	9	9	2025-03-11 23:57:13.296836
+49	63	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2010-10-10	2025-03-11 23:58:09.091614
+50	63	department_id	1	1	2025-03-11 23:58:09.092698
+51	63	role_id	9	9	2025-03-11 23:58:09.09347
+52	60	hire_date	Wed Jan 01 2025 00:00:00 GMT+0100 (hora estándar de Europa central)	2025-01-01	2025-03-12 00:07:11.041197
+53	60	department_id	2	2	2025-03-12 00:07:11.04442
+54	60	role_id	8	8	2025-03-12 00:07:11.044959
+55	60	hire_date	Wed Jan 01 2025 00:00:00 GMT+0100 (hora estándar de Europa central)	2025-01-01	2025-03-12 00:08:41.493848
+56	60	department_id	2	3	2025-03-12 00:08:41.495182
+57	60	role_id	8	8	2025-03-12 00:08:41.495725
+58	63	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2025-10-10	2025-03-12 00:10:06.65412
+59	63	department_id	1	1	2025-03-12 00:10:06.65874
+60	63	role_id	9	9	2025-03-12 00:10:06.659167
+61	57	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2010-10-10	2025-03-12 00:19:01.277107
+62	57	department_id	2	2	2025-03-12 00:19:01.278463
+63	57	role_id	8	8	2025-03-12 00:19:01.279574
+64	58	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2010-10-10	2025-03-12 00:20:36.387895
+65	58	department_id	2	2	2025-03-12 00:20:36.389403
+66	58	role_id	5	5	2025-03-12 00:20:36.389936
+67	56	hire_date	Sun Oct 10 2010 00:00:00 GMT+0200 (hora de verano de Europa central)	2010-10-10	2025-03-12 14:48:36.710747
+68	56	department_id	1	3	2025-03-12 14:48:36.714058
+69	56	role_id	8	13	2025-03-12 14:48:36.714784
+\.
+
+
+--
+-- TOC entry 3774 (class 0 OID 16477)
+-- Dependencies: 214
+-- Data for Name: employees; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.employees (id, first_name, last_name, email, hire_date, department_id, role_id, is_active) FROM stdin;
+54	testcambio	testcambio	tester1@mail.es	2020-02-17	2	9	f
+61	Vitalii	Carabutttttttt	mail.es	2010-01-01	3	5	f
+1	Admin	User	admin@example.com	2023-01-01	\N	\N	t
+55	Juan	Garcia	jgarcia@mail.es	2010-10-09	3	9	t
+62	aaa	bbb	aa@mail.es	2010-10-10	3	5	f
+65	andrees	prapra	fernandez	2023-12-09	3	8	t
+66	ivan	garcia	ivang@mail.es	2025-02-12	1	5	t
+64	Vanea	Pereira	vanea@mail.es	2010-10-10	2	8	t
+60	Valentina	Carabut	valentina@mail.es	2025-01-01	3	8	t
+63	Marius	Ionut	Fernandez	2025-10-10	1	9	t
+57	Liuda	Carabut	liuda@mail.es	2010-10-10	2	8	t
+58	Ivan	Garcia	ivan@mail.es	2010-10-10	2	5	t
+56	Mihai	Carabut	mihai@mail.es	2010-10-10	3	13	t
+\.
+
+
+--
+-- TOC entry 3776 (class 0 OID 16482)
+-- Dependencies: 216
+-- Data for Name: recognitions; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.recognitions (id, employee_id, message, badge, date) FROM stdin;
+7	58	aaa	star	2025-03-14
+8	57	aaa	star	2025-03-20
+\.
+
+
+--
+-- TOC entry 3778 (class 0 OID 16488)
+-- Dependencies: 218
+-- Data for Name: roles; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.roles (id, title, salary) FROM stdin;
+5	Jefe	10.00
+8	Desarrollador	30.00
+9	Gerente	50.00
+13	Boss	100.00
+\.
+
+
+--
+-- TOC entry 3783 (class 0 OID 16549)
+-- Dependencies: 223
+-- Data for Name: time_entries; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.time_entries (id, employee_id, clock_in, clock_out) FROM stdin;
+1	56	2025-03-13 02:24:54.572656	2025-03-13 02:24:56.286737
+2	66	2025-03-13 02:47:38.60867	2025-03-13 02:47:39.518243
+\.
+
+
+--
+-- TOC entry 3784 (class 0 OID 16561)
+-- Dependencies: 224
+-- Data for Name: user_roles; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.user_roles (user_id, role) FROM stdin;
+4	admin
+5	employee
+\.
+
+
+--
+-- TOC entry 3780 (class 0 OID 16492)
+-- Dependencies: 220
+-- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.users (id, employee_id, email, password, role, is_active, created_at, force_password_change) FROM stdin;
+5	56	mihai@mail.es	$2b$10$afx7e3xUAvduTnrSNfQgWe4W5DNoO3mIcRiujpeXgiD3g0DOOlK3y	employee	t	2025-03-12 15:52:17.665	t
+4	1	admin@example.com	$2b$10$M5rHXBvnvu7ZdRbA/PgOVepoT8WbcL1HzgA7QmRjEi.zbOwImwv.S	admin	t	2025-03-08 19:39:17.665664	f
+\.
+
+
+--
+-- TOC entry 3798 (class 0 OID 0)
+-- Dependencies: 211
+-- Name: departments_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.departments_id_seq', 9, true);
+
+
+--
+-- TOC entry 3799 (class 0 OID 0)
+-- Dependencies: 213
+-- Name: employee_history_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.employee_history_id_seq', 69, true);
+
+
+--
+-- TOC entry 3800 (class 0 OID 0)
+-- Dependencies: 215
+-- Name: employees_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.employees_id_seq', 81, true);
+
+
+--
+-- TOC entry 3801 (class 0 OID 0)
+-- Dependencies: 217
+-- Name: recognitions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.recognitions_id_seq', 10, true);
+
+
+--
+-- TOC entry 3802 (class 0 OID 0)
+-- Dependencies: 219
+-- Name: roles_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.roles_id_seq', 13, true);
+
+
+--
+-- TOC entry 3803 (class 0 OID 0)
+-- Dependencies: 222
+-- Name: time_entries_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.time_entries_id_seq', 2, true);
+
+
+--
+-- TOC entry 3804 (class 0 OID 0)
+-- Dependencies: 221
+-- Name: users_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
+--
+
+SELECT pg_catalog.setval('public.users_id_seq', 4, true);
+
+
+--
+-- TOC entry 3602 (class 2606 OID 16508)
+-- Name: departments departments_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.departments
+    ADD CONSTRAINT departments_pkey PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3604 (class 2606 OID 16510)
+-- Name: employee_history employee_history_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.employee_history
+    ADD CONSTRAINT employee_history_pkey PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3606 (class 2606 OID 16512)
+-- Name: employees employees_email_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.employees
+    ADD CONSTRAINT employees_email_key UNIQUE (email);
+
+
+--
+-- TOC entry 3608 (class 2606 OID 16514)
+-- Name: employees employees_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.employees
+    ADD CONSTRAINT employees_pkey PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3612 (class 2606 OID 16516)
+-- Name: recognitions recognitions_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.recognitions
+    ADD CONSTRAINT recognitions_pkey PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3614 (class 2606 OID 16518)
+-- Name: roles roles_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.roles
+    ADD CONSTRAINT roles_pkey PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3620 (class 2606 OID 16554)
+-- Name: time_entries time_entries_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.time_entries
+    ADD CONSTRAINT time_entries_pkey PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3610 (class 2606 OID 16611)
+-- Name: employees unique_email; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.employees
+    ADD CONSTRAINT unique_email UNIQUE (email);
+
+
+--
+-- TOC entry 3622 (class 2606 OID 16565)
+-- Name: user_roles user_roles_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.user_roles
+    ADD CONSTRAINT user_roles_pkey PRIMARY KEY (user_id, role);
+
+
+--
+-- TOC entry 3616 (class 2606 OID 16520)
+-- Name: users users_email_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_email_key UNIQUE (email);
+
+
+--
+-- TOC entry 3618 (class 2606 OID 16522)
+-- Name: users users_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- TOC entry 3630 (class 2620 OID 16572)
+-- Name: employees trigger_create_or_update_user; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER trigger_create_or_update_user AFTER INSERT OR UPDATE OF is_active, email ON public.employees FOR EACH ROW EXECUTE FUNCTION public.create_or_update_user_for_employee();
+
+
+--
+-- TOC entry 3623 (class 2606 OID 16523)
+-- Name: employee_history employee_history_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.employee_history
+    ADD CONSTRAINT employee_history_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id);
+
+
+--
+-- TOC entry 3624 (class 2606 OID 16528)
+-- Name: employees employees_department_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.employees
+    ADD CONSTRAINT employees_department_id_fkey FOREIGN KEY (department_id) REFERENCES public.departments(id);
+
+
+--
+-- TOC entry 3625 (class 2606 OID 16533)
+-- Name: employees employees_role_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.employees
+    ADD CONSTRAINT employees_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.roles(id);
+
+
+--
+-- TOC entry 3626 (class 2606 OID 16538)
+-- Name: recognitions recognitions_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.recognitions
+    ADD CONSTRAINT recognitions_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id);
+
+
+--
+-- TOC entry 3628 (class 2606 OID 16555)
+-- Name: time_entries time_entries_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.time_entries
+    ADD CONSTRAINT time_entries_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id);
+
+
+--
+-- TOC entry 3629 (class 2606 OID 16566)
+-- Name: user_roles user_roles_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.user_roles
+    ADD CONSTRAINT user_roles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
+-- TOC entry 3627 (class 2606 OID 16543)
+-- Name: users users_employee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.users
+    ADD CONSTRAINT users_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id) ON DELETE SET NULL;
+
+
+-- Completed on 2025-03-13 19:28:33 CET
+
+--
+-- PostgreSQL database dump complete
+--
+
